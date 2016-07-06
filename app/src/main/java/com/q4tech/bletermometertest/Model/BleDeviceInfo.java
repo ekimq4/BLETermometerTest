@@ -1,4 +1,4 @@
-package com.q4tech.bletermometertest;
+package com.q4tech.bletermometertest.Model;
 
 import android.bluetooth.BluetoothDevice;
 

@@ -1,4 +1,4 @@
-package com.q4tech.bletermometertest;
+package com.q4tech.bletermometertest.Activity;
 
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -24,6 +24,10 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.Toast;
+
+import com.q4tech.bletermometertest.Model.BleDeviceInfo;
+import com.q4tech.bletermometertest.Adapter.MainAdapter;
+import com.q4tech.bletermometertest.R;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -107,6 +111,12 @@ public class MainActivity extends AppCompatActivity {
                 scanLeDevice(true);
             }
         //}
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        scanLeDevice(false);
     }
 
     @Override

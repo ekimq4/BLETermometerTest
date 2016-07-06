@@ -1,4 +1,4 @@
-package com.q4tech.bletermometertest;
+package com.q4tech.bletermometertest.Adapter;
 
 import android.app.Activity;
 import android.content.Context;
@@ -11,6 +11,10 @@ import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
+
+import com.q4tech.bletermometertest.Activity.MainActivity;
+import com.q4tech.bletermometertest.Model.BleDeviceInfo;
+import com.q4tech.bletermometertest.R;
 
 import java.util.ArrayList;
 

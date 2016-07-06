@@ -1,7 +1,6 @@
 package com.q4tech.bletermometertest;
 
-import android.Manifest;
-import android.annotation.TargetApi;
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -16,12 +15,14 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ListView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -33,7 +34,6 @@ import no.nordicsemi.android.support.v18.scanner.ScanFilter;
 import no.nordicsemi.android.support.v18.scanner.ScanResult;
 import no.nordicsemi.android.support.v18.scanner.ScanSettings;
 
-@TargetApi(Build.VERSION_CODES.LOLLIPOP)
 public class MainActivity extends AppCompatActivity {
 
     private BluetoothAdapter mBluetoothAdapter;
@@ -44,6 +44,12 @@ public class MainActivity extends AppCompatActivity {
     private List<ScanFilter> filters;
     private BluetoothGatt mGatt;
     private BluetoothLeScannerCompat scanner;
+    private ArrayList<BleDeviceInfo> mDeviceInfoList;
+    private Button btnScan;
+    private Boolean mScanning;
+
+    private ListView listView;
+    private MainAdapter mAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +58,22 @@ public class MainActivity extends AppCompatActivity {
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         mHandler = new Handler();
+        mDeviceInfoList = new ArrayList<BleDeviceInfo>();
+        mScanning = true;
+        btnScan = (Button)findViewById(R.id.btnScan);
+        btnScan.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v)
+            {
+                mScanning = !mScanning;
+                scanLeDevice(mScanning);
+            }
+        });
+
+        listView = (ListView) findViewById(R.id.mainListView);
+
+        /**************** Create Custom Adapter *********/
+        mAdapter = new MainAdapter(this, mDeviceInfoList, getResources());
+        listView.setAdapter(mAdapter);
 
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             Toast.makeText(this, "BLE Not Supported",
@@ -67,37 +89,47 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (ActivityCompat.checkSelfPermission(this.getBaseContext(),
+        /*if (ActivityCompat.checkSelfPermission(this.getBaseContext(),
                 Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 0);
-        } else {
+        } else {*/
             if (mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
                 Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
                 startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
             } else {
                 if (Build.VERSION.SDK_INT >= 21) {
                     scanner = BluetoothLeScannerCompat.getScanner();
-                    settings = new ScanSettings.Builder()
-                            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).setReportDelay(1000)
-                            .setUseHardwareBatchingIfSupported(false).build();
-                    filters = new ArrayList<ScanFilter>();
+//                    settings = new ScanSettings.Builder()
+//                            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).setReportDelay(1000)
+//                            .setUseHardwareBatchingIfSupported(false).build();
+//                    filters = new ArrayList<ScanFilter>();
                 }
                 scanLeDevice(true);
             }
+        //}
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (resultCode == Activity.RESULT_CANCELED) {
+                //Bluetooth not enabled.
+                finish();
+                return;
+            }
         }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     private void scanLeDevice(final boolean enable) {
         if (enable) {
-            mHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    scanner.stopScan(mScanCallback);
-                }
-            }, SCAN_PERIOD);
-            //scanner.startScan(mScanCallback);
-            scanner.startScan(filters, settings, mScanCallback);
+            btnScan.setText("Stop Scanning");
+            mDeviceInfoList.clear();
+            mAdapter.notifyDataSetChanged();
+            scanner.startScan(mScanCallback);
+            //scanner.startScan(filters, settings, mScanCallback);
         } else {
+            btnScan.setText("Scan");
             scanner.stopScan(mScanCallback);
         }
     }
@@ -107,8 +139,14 @@ public class MainActivity extends AppCompatActivity {
         public void onScanResult(int callbackType, ScanResult result) {
             Log.i("callbackType", String.valueOf(callbackType));
             Log.i("result", result.toString());
-            BluetoothDevice btDevice = result.getDevice();
-            connectToDevice(btDevice);
+            BleDeviceInfo deviceInfo = new BleDeviceInfo(result.getDevice(), result.getRssi());
+            if (!deviceInfoExists(deviceInfo.getBluetoothDevice().getAddress())) {
+                mDeviceInfoList.add(deviceInfo);
+            } else {
+                BleDeviceInfo foundDeviceInfo = findDeviceInfo(deviceInfo.getBluetoothDevice());
+                if (foundDeviceInfo != null) foundDeviceInfo.updateRssi(deviceInfo.getRssi());
+            }
+            mAdapter.notifyDataSetChanged();
         }
 
         @Override
@@ -123,6 +161,26 @@ public class MainActivity extends AppCompatActivity {
             Log.e("Scan Failed", "Error Code: " + errorCode);
         }
     };
+
+    private boolean deviceInfoExists(String address) {
+        for (int i = 0; i < mDeviceInfoList.size(); i++) {
+            if (mDeviceInfoList.get(i).getBluetoothDevice().getAddress()
+                    .equals(address)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private BleDeviceInfo findDeviceInfo(BluetoothDevice device) {
+        for (int i = 0; i < mDeviceInfoList.size(); i++) {
+            if (mDeviceInfoList.get(i).getBluetoothDevice().getAddress()
+                    .equals(device.getAddress())) {
+                return mDeviceInfoList.get(i);
+            }
+        }
+        return null;
+    }
 
     public void connectToDevice(BluetoothDevice device) {
         if (mGatt == null) {

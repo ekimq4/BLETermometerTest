@@ -360,8 +360,8 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void run() {
                 textTemp.setText(String.valueOf(deviceValues.getTemperature()));
-                textCircuitTemp.setText(String.valueOf(deviceValues.getCircuitTemp()));
-                textVoltage.setText(String.valueOf(deviceValues.getVoltage()));
+                textCircuitTemp.setText(String.valueOf(deviceValues.getCircuitTemp() + " °C"));
+                textVoltage.setText(String.valueOf(deviceValues.getVoltage() + "V"));
             }
         };
         mainHandler.post(myRunnable);

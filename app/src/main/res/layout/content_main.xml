@@ -22,7 +22,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Dispositivo"
-            android:textSize="24sp"
+            android:textColor="@color/DimGray"
+            android:textSize="36sp"
             android:layout_gravity="center_horizontal"
             android:layout_alignParentTop="true"
             android:layout_alignParentStart="true"
@@ -51,6 +52,61 @@
             android:layout_alignParentTop="true"
             android:layout_marginLeft="15dp"
             android:layout_marginRight="15dp" />
+    </RelativeLayout>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp">
+
+        <TextView
+            android:id="@+id/textTemp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0"
+            android:textColor="@color/DimGray"
+            android:textSize="102sp"
+            android:layout_centerHorizontal="true" />
+
+        <TextView
+            android:id="@+id/textDegrees"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="°C"
+            android:textSize="48sp"
+            android:textColor="@color/DimGray"
+            android:layout_alignTop="@+id/textTemp"
+            android:layout_toEndOf="@+id/textTemp" />
+    </RelativeLayout>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp">
+
+        <TextView
+            android:id="@+id/textCircuitTemp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0°C"
+            android:textSize="24sp"
+            android:textColor="@color/DimGray"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentStart="true"
+            android:layout_marginStart="50dp" />
+
+        <TextView
+            android:id="@+id/textVoltage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0v"
+            android:textSize="24sp"
+            android:textColor="@color/DimGray"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentEnd="true"
+            android:layout_marginEnd="50dp" />
     </RelativeLayout>
 
 </LinearLayout>

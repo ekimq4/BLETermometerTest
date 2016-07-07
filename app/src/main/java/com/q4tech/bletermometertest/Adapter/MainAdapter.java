@@ -10,7 +10,7 @@ import android.widget.ArrayAdapter;
 import android.widget.TextView;
 
 import com.q4tech.bletermometertest.Activity.MainActivity;
-import com.q4tech.bletermometertest.Model.BleDeviceInfo;
+import com.q4tech.bletermometertest.Model.BleDevice;
 import com.q4tech.bletermometertest.R;
 
 import java.util.ArrayList;
@@ -18,12 +18,12 @@ import java.util.ArrayList;
 /**
  * Created by ekim on 7/6/16.
  */
-public class MainAdapter extends ArrayAdapter<BleDeviceInfo> {
+public class MainAdapter extends ArrayAdapter<BleDevice> {
 
     private Activity activity;
     private ArrayList data;
     public Resources res;
-    BleDeviceInfo tempValues=null;
+    BleDevice tempValues=null;
     LayoutInflater inflater;
 
     /*************  CustomAdapter Constructor *****************/
@@ -58,7 +58,7 @@ public class MainAdapter extends ArrayAdapter<BleDeviceInfo> {
 
         /***** Get each Model object from Arraylist ********/
         tempValues = null;
-        tempValues = (BleDeviceInfo) data.get(position);
+        tempValues = (BleDevice) data.get(position);
 
         TextView textName = (TextView)row.findViewById(R.id.textName);
         TextView textAddress = (TextView)row.findViewById(R.id.textAddress);
@@ -66,7 +66,7 @@ public class MainAdapter extends ArrayAdapter<BleDeviceInfo> {
 
         if(position == 0){
             // Default selected Spinner item
-            textName.setText(data.size() > 1 ? "Seleccione dispositivo..." : "No se ha encontrado ningun dispositivo.");
+            textName.setText("Seleccione dispositivo...");
             textAddress.setText("");
             textRssi.setText("");
         }

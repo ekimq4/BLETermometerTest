@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
@@ -24,14 +25,18 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ImageButton;
 import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.q4tech.bletermometertest.Adapter.MainAdapter;
-import com.q4tech.bletermometertest.Model.BleDeviceInfo;
+import com.q4tech.bletermometertest.Model.BleDevice;
+import com.q4tech.bletermometertest.Model.BleDeviceValues;
 import com.q4tech.bletermometertest.R;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
 import no.nordicsemi.android.support.v18.scanner.ScanCallback;
@@ -49,11 +54,26 @@ public class MainActivity extends AppCompatActivity {
     private List<ScanFilter> filters;
     private BluetoothGatt mGatt;
     private BluetoothLeScannerCompat scanner;
-    private ArrayList<BleDeviceInfo> mDeviceInfoList;
+    private ArrayList<BleDevice> mDeviceInfoList;
     private MainAdapter adapter;
     private ImageButton btnRefresh;
+    private BleDeviceValues deviceValues;
 
-    private List<BluetoothGattService> services;
+    private static byte[] READ_TEMPERATURE_FALSE = {0x00};
+    private static byte[] READ_TEMPERATURE_TRUE = {0x01};
+    private BluetoothGattService primaryService;
+    private BluetoothGattService deviceInfoService;
+    private static String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb";
+    private static String UUID_PRIMARY_SERVICE = "F000AA00-0451-4000-B000-000000000000";
+    private static String UUID_DEVICE_INFO_SERVICE = "0000180A-0000-1000-8000-00805F9B34FB";
+    private static String UUID_CHARACTERISTIC_READ_TEMP = "F000AA01-0451-4000-B000-000000000000";
+    private static String UUID_CHARACTERISTIC_SET_READ = "F000AA02-0451-4000-B000-000000000000";
+    private static String UUID_CHARACTERISTIC_READ_VOLTAGE = "F000AA03-0451-4000-B000-000000000000";
+
+    private TextView textTemp;
+    private TextView textCircuitTemp;
+    private TextView textVoltage;
+    private Spinner spinnerDevices;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,7 +93,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initializeUI() {
-        Spinner spinnerDevices = (Spinner) findViewById(R.id.spinnerDevices);
+        textTemp = (TextView) findViewById(R.id.textTemp);
+        textCircuitTemp = (TextView) findViewById(R.id.textCircuitTemp);
+        textVoltage = (TextView) findViewById(R.id.textVoltage);
+        spinnerDevices = (Spinner) findViewById(R.id.spinnerDevices);
         adapter = new MainAdapter(this, R.layout.adapter_main_list, mDeviceInfoList, getResources());
         spinnerDevices.setAdapter(adapter);
 
@@ -81,7 +104,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parentView, View v, int position, long id) {
                 if (position != 0) {
-                    BleDeviceInfo deviceInfo = mDeviceInfoList.get(position);
+                    BleDevice deviceInfo = mDeviceInfoList.get(position);
                     connectToDevice(deviceInfo.getBluetoothDevice());
                 }
             }
@@ -104,8 +127,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void initialize() {
         mHandler = new Handler();
-        mDeviceInfoList = new ArrayList<BleDeviceInfo>();
+        mDeviceInfoList = new ArrayList<BleDevice>();
         clearDeviceInfoList();
+        deviceValues = new BleDeviceValues(0, 0, 0);
 
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             Toast.makeText(this, "BLE Not Supported",
@@ -180,7 +204,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void clearDeviceInfoList() {
         mDeviceInfoList.clear();
-        BleDeviceInfo deviceInfo = new BleDeviceInfo(null, 0);
+        BleDevice deviceInfo = new BleDevice(null, 0);
         mDeviceInfoList.add(deviceInfo);
     }
 
@@ -189,11 +213,11 @@ public class MainActivity extends AppCompatActivity {
         public void onScanResult(int callbackType, ScanResult result) {
             Log.i("callbackType", String.valueOf(callbackType));
             Log.i("result", result.toString());
-            BleDeviceInfo deviceInfo = new BleDeviceInfo(result.getDevice(), result.getRssi());
+            BleDevice deviceInfo = new BleDevice(result.getDevice(), result.getRssi());
             if (!deviceInfoExists(deviceInfo.getBluetoothDevice().getAddress())) {
                 mDeviceInfoList.add(deviceInfo);
             } else {
-                BleDeviceInfo foundDeviceInfo = findDeviceInfo(deviceInfo.getBluetoothDevice());
+                BleDevice foundDeviceInfo = findDeviceInfo(deviceInfo.getBluetoothDevice());
                 if (foundDeviceInfo != null) foundDeviceInfo.updateRssi(deviceInfo.getRssi());
             }
         }
@@ -221,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    private BleDeviceInfo findDeviceInfo(BluetoothDevice device) {
+    private BleDevice findDeviceInfo(BluetoothDevice device) {
         for (int i = 0; i < mDeviceInfoList.size(); i++) {
             if (mDeviceInfoList.get(i).getBluetoothDevice() != null && mDeviceInfoList.get(i).getBluetoothDevice().getAddress()
                     .equals(device.getAddress())) {
@@ -246,10 +270,26 @@ public class MainActivity extends AppCompatActivity {
             switch (newState) {
                 case BluetoothProfile.STATE_CONNECTED:
                     Log.i("gattCallback", "STATE_CONNECTED");
-                    gatt.discoverServices();
+                    mGatt.discoverServices();
                     break;
                 case BluetoothProfile.STATE_DISCONNECTED:
                     Log.e("gattCallback", "STATE_DISCONNECTED");
+                    mGatt.disconnect();
+                    mGatt = null;
+                    deviceValues.setTemperature(0);
+                    deviceValues.setCircuitTemp(0);
+                    deviceValues.setVoltage(0);
+                    refreshValuesUI();
+
+                    Handler mainHandler = new Handler(getBaseContext().getMainLooper());
+                    Runnable myRunnable = new Runnable() {
+                        @Override
+                        public void run() {
+                            spinnerDevices.setSelection(0);
+                        }
+                    };
+                    mainHandler.post(myRunnable);
+
                     break;
                 default:
                     Log.e("gattCallback", "STATE_OTHER");
@@ -258,13 +298,16 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            /*List<BluetoothGattService> */services = gatt.getServices();
-            Log.i("onServicesDiscovered", services.toString());
-            //gatt.readCharacteristic(services.get(3).getCharacteristics().get(2));
-//            BluetoothGattCharacteristic c = services.get(3).getCharacteristics().get(1);
-//            byte[] value = {0x01};
-//            c.setValue(value);
-//            gatt.writeCharacteristic(c);
+            Log.i("onServicesDiscovered", mGatt.getServices().toString());
+
+            primaryService = mGatt.getService(UUID.fromString(UUID_PRIMARY_SERVICE));
+            deviceInfoService = mGatt.getService(UUID.fromString(UUID_DEVICE_INFO_SERVICE));
+
+            if (primaryService != null && deviceInfoService != null) {
+                setReadTemp(true);
+            } else {
+                mGatt.disconnect();
+            }
         }
 
         @Override
@@ -272,27 +315,73 @@ public class MainActivity extends AppCompatActivity {
                                          BluetoothGattCharacteristic
                                                  characteristic, int status) {
             Log.i("onCharacteristicRead", characteristic.toString());
-            //gatt.disconnect();
+            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_READ_VOLTAGE))) {
+                byte[] value = characteristic.getValue();
+                Log.e("onCharacteristicRead", String.valueOf(byteArrayToInt(value)));
+                deviceValues.setVoltage(byteArrayToInt(value));
+                refreshValuesUI();
+            }
         }
 
         @Override
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             Log.i("onCharacteristicWrite", characteristic.toString());
-            /*BluetoothGattCharacteristic c = services.get(3).getCharacteristics().get(0);
-            gatt.setCharacteristicNotification(c, true);
-            UUID CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-            BluetoothGattDescriptor descriptor = c.getDescriptor(CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID);
-            descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-            gatt.writeDescriptor(descriptor);
-            }*/
+
+            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_SET_READ))
+                    && Arrays.equals(characteristic.getValue(), READ_TEMPERATURE_TRUE)) {
+                BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_READ_TEMP));
+                mGatt.setCharacteristicNotification(c, true);
+                BluetoothGattDescriptor descriptor = c.getDescriptor(UUID.fromString(CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID));
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                mGatt.writeDescriptor(descriptor);
+            }
         }
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             Log.i("onCharacteristicChanged", characteristic.toString());
+
+            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_READ_TEMP))) {
+                byte[] value = characteristic.getValue();
+                Log.e("onCharacteristicChanged", Arrays.toString(value));
+                deviceValues.setTemperature(value[1]);
+                deviceValues.setCircuitTemp(value[3]);
+                refreshValuesUI();
+                mGatt.readCharacteristic(primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_READ_VOLTAGE)));
+            }
         }
 
     };
+
+    private void refreshValuesUI() {
+        Handler mainHandler = new Handler(getBaseContext().getMainLooper());
+
+        Runnable myRunnable = new Runnable() {
+            @Override
+            public void run() {
+                textTemp.setText(String.valueOf(deviceValues.getTemperature()));
+                textCircuitTemp.setText(String.valueOf(deviceValues.getCircuitTemp()));
+                textVoltage.setText(String.valueOf(deviceValues.getVoltage()));
+            }
+        };
+        mainHandler.post(myRunnable);
+    }
+
+    public static int byteArrayToInt(byte[] b) {
+        if (b.length == 4)
+            return b[0] << 24 | (b[1] & 0xff) << 16 | (b[2] & 0xff) << 8
+                    | (b[3] & 0xff);
+        else if (b.length == 2)
+            return (b[0] & 0xff) << 8 | (b[1] & 0xff);
+
+        return 0;
+    }
+
+    private void setReadTemp(Boolean read) {
+        BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_SET_READ));
+        c.setValue(read ? READ_TEMPERATURE_TRUE : READ_TEMPERATURE_FALSE);
+        mGatt.writeCharacteristic(c);
+    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {

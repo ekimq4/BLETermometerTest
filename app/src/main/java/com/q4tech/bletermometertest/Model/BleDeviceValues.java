@@ -5,6 +5,11 @@ package com.q4tech.bletermometertest.Model;
  */
 public class BleDeviceValues {
 
+    public static final String UUID_SERVICE_PRIMARY = "F000AA00-0451-4000-B000-000000000000";
+    public static final String UUID_CHARACTERISTIC_READ_TEMP = "F000AA01-0451-4000-B000-000000000000";
+    public static final String UUID_CHARACTERISTIC_SET_READ = "F000AA02-0451-4000-B000-000000000000";
+    public static final String UUID_CHARACTERISTIC_READ_VOLTAGE = "F000AA03-0451-4000-B000-000000000000";
+
     private int temperature;
     private int circuitTemp;
     private int voltage;

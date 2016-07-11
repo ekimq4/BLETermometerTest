@@ -30,9 +30,12 @@ import android.widget.Toast;
 
 import com.q4tech.bletermometertest.Adapter.MainAdapter;
 import com.q4tech.bletermometertest.Model.BleDevice;
+import com.q4tech.bletermometertest.Model.BleDeviceInfo;
 import com.q4tech.bletermometertest.Model.BleDeviceValues;
 import com.q4tech.bletermometertest.R;
 
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -49,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothAdapter mBluetoothAdapter;
     private int REQUEST_ENABLE_BT = 1;
     private Handler mHandler;
-    private static final long SCAN_PERIOD = 10000;
+    private static final long SCAN_PERIOD = 5000;
     private ScanSettings settings;
     private List<ScanFilter> filters;
     private BluetoothGatt mGatt;
@@ -58,22 +61,21 @@ public class MainActivity extends AppCompatActivity {
     private MainAdapter adapter;
     private ImageButton btnRefresh;
     private BleDeviceValues deviceValues;
+    private BleDeviceInfo deviceInfo;
+    private ArrayList<String> characteristicsToRead;
 
-    private static byte[] READ_TEMPERATURE_FALSE = {0x00};
-    private static byte[] READ_TEMPERATURE_TRUE = {0x01};
+    private static final byte[] READ_TEMPERATURE_FALSE = {0x00};
+    private static final byte[] READ_TEMPERATURE_TRUE = {0x01};
     private BluetoothGattService primaryService;
     private BluetoothGattService deviceInfoService;
-    private static String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb";
-    private static String UUID_PRIMARY_SERVICE = "F000AA00-0451-4000-B000-000000000000";
-    private static String UUID_DEVICE_INFO_SERVICE = "0000180A-0000-1000-8000-00805F9B34FB";
-    private static String UUID_CHARACTERISTIC_READ_TEMP = "F000AA01-0451-4000-B000-000000000000";
-    private static String UUID_CHARACTERISTIC_SET_READ = "F000AA02-0451-4000-B000-000000000000";
-    private static String UUID_CHARACTERISTIC_READ_VOLTAGE = "F000AA03-0451-4000-B000-000000000000";
+    private static final String CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb";
 
     private TextView textTemp;
     private TextView textCircuitTemp;
     private TextView textVoltage;
     private Spinner spinnerDevices;
+    private TextView textSerialNum;
+    private TextView textFirmwareV;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -96,6 +98,8 @@ public class MainActivity extends AppCompatActivity {
         textTemp = (TextView) findViewById(R.id.textTemp);
         textCircuitTemp = (TextView) findViewById(R.id.textCircuitTemp);
         textVoltage = (TextView) findViewById(R.id.textVoltage);
+        textSerialNum = (TextView) findViewById(R.id.textSerialNum);
+        textFirmwareV = (TextView) findViewById(R.id.textFirmwareV);
         spinnerDevices = (Spinner) findViewById(R.id.spinnerDevices);
         adapter = new MainAdapter(this, R.layout.adapter_main_list, mDeviceInfoList, getResources());
         spinnerDevices.setAdapter(adapter);
@@ -128,8 +132,10 @@ public class MainActivity extends AppCompatActivity {
     private void initialize() {
         mHandler = new Handler();
         mDeviceInfoList = new ArrayList<BleDevice>();
+        characteristicsToRead = new ArrayList<String>();
         clearDeviceInfoList();
         deviceValues = new BleDeviceValues(0, 0, 0);
+        deviceInfo = new BleDeviceInfo();
 
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             Toast.makeText(this, "BLE Not Supported",
@@ -180,6 +186,8 @@ public class MainActivity extends AppCompatActivity {
             if (bluetoothDisabled()) {
                 enableBluetooth();
             } else {
+                disconnectGatt();
+                spinnerDevices.setEnabled(false);
                 btnRefresh.setEnabled(false);
                 btnRefresh.setBackgroundResource(android.R.drawable.ic_delete);
                 mHandler.postDelayed(new Runnable() {
@@ -195,6 +203,7 @@ public class MainActivity extends AppCompatActivity {
                 //scanner.startScan(filters, settings, mScanCallback);
             }
         } else {
+            spinnerDevices.setEnabled(true);
             btnRefresh.setEnabled(true);
             btnRefresh.setBackgroundResource(android.R.drawable.ic_input_add);
             scanner.stopScan(mScanCallback);
@@ -256,11 +265,31 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void connectToDevice(BluetoothDevice device) {
-        if (mGatt != null) {
-            mGatt.disconnect();
-            mGatt = null;
-        }
+        disconnectGatt();
+        characteristicsToRead.clear();
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_SYSTEM_ID);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_MODEL_NUM);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_SERIAL_NUM);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_FIRMWARE_REV);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_HARDWARE_REV);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_SOFTWARE_REV);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_MANUFACTURER_NAME);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_REGULATORY_CERTIF);
+        characteristicsToRead.add(BleDeviceInfo.UUID_CHARACTERISTIC_PNP_ID);
         mGatt = device.connectGatt(this, false, gattCallback);
+    }
+
+    private void readNextCharacteristic() {
+        if (characteristicsToRead != null && characteristicsToRead.size() != 0) {
+            mGatt.readCharacteristic(deviceInfoService.getCharacteristic(UUID.fromString(characteristicsToRead.get(0))));
+        } else {
+            refreshInfoUI();
+            setReadTemp(true);
+        }
+    }
+
+    private void characteristicRead() {
+        characteristicsToRead.remove(0);
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -274,21 +303,22 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case BluetoothProfile.STATE_DISCONNECTED:
                     Log.e("gattCallback", "STATE_DISCONNECTED");
-                    mGatt.disconnect();
                     mGatt = null;
                     deviceValues.setTemperature(0);
                     deviceValues.setCircuitTemp(0);
                     deviceValues.setVoltage(0);
+                    deviceInfo.refreshValues();
                     refreshValuesUI();
+                    refreshInfoUI();
 
                     Handler mainHandler = new Handler(getBaseContext().getMainLooper());
-                    Runnable myRunnable = new Runnable() {
+                    Runnable runnable = new Runnable() {
                         @Override
                         public void run() {
                             spinnerDevices.setSelection(0);
                         }
                     };
-                    mainHandler.post(myRunnable);
+                    mainHandler.post(runnable);
 
                     break;
                 default:
@@ -300,13 +330,13 @@ public class MainActivity extends AppCompatActivity {
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             Log.i("onServicesDiscovered", mGatt.getServices().toString());
 
-            primaryService = mGatt.getService(UUID.fromString(UUID_PRIMARY_SERVICE));
-            deviceInfoService = mGatt.getService(UUID.fromString(UUID_DEVICE_INFO_SERVICE));
+            primaryService = mGatt.getService(UUID.fromString(BleDeviceValues.UUID_SERVICE_PRIMARY));
+            deviceInfoService = mGatt.getService(UUID.fromString(BleDeviceInfo.UUID_SERVICE_DEVICE_INFO));
 
             if (primaryService != null && deviceInfoService != null) {
-                setReadTemp(true);
+                readNextCharacteristic();
             } else {
-                mGatt.disconnect();
+                disconnectGatt();
             }
         }
 
@@ -315,11 +345,90 @@ public class MainActivity extends AppCompatActivity {
                                          BluetoothGattCharacteristic
                                                  characteristic, int status) {
             Log.i("onCharacteristicRead", characteristic.toString());
-            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_READ_VOLTAGE))) {
-                byte[] value = characteristic.getValue();
-                Log.e("onCharacteristicRead", String.valueOf(byteArrayToInt(value)));
-                deviceValues.setVoltage(byteArrayToInt(value));
-                refreshValuesUI();
+            switch (characteristic.getUuid().toString().toUpperCase()) {
+                case BleDeviceValues.UUID_CHARACTERISTIC_READ_VOLTAGE:
+                    Log.e("onCharacteristicRead", String.valueOf(characteristic.getValue()[0]));
+                    deviceValues.setVoltage(characteristic.getValue()[0]);
+                    refreshValuesUI();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_SYSTEM_ID:
+                    Log.e("onCharacteristicRead", String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    deviceInfo.setSystemId(String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_MODEL_NUM:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setModelNum(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_SERIAL_NUM:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setSerialNum(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_FIRMWARE_REV:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setFirmwareRev(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_HARDWARE_REV:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setHardwareRev(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_SOFTWARE_REV:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setSoftwareRev(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_MANUFACTURER_NAME:
+                    try {
+                        Log.e("onCharacteristicRead", new String(characteristic.getValue(), "UTF-8"));
+                        deviceInfo.setManufacturerName(new String(characteristic.getValue(), "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+                        e.printStackTrace();
+                    }
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_REGULATORY_CERTIF:
+                    Log.e("onCharacteristicRead", String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    deviceInfo.setRegulatoryCertif(String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
+                case BleDeviceInfo.UUID_CHARACTERISTIC_PNP_ID:
+                    Log.e("onCharacteristicRead", String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    deviceInfo.setPnpId(String.valueOf(byteArrayToInt(characteristic.getValue())));
+                    characteristicRead();
+                    readNextCharacteristic();
+                    break;
             }
         }
 
@@ -327,9 +436,9 @@ public class MainActivity extends AppCompatActivity {
         public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             Log.i("onCharacteristicWrite", characteristic.toString());
 
-            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_SET_READ))
+            if (characteristic.getUuid().equals(UUID.fromString(BleDeviceValues.UUID_CHARACTERISTIC_SET_READ))
                     && Arrays.equals(characteristic.getValue(), READ_TEMPERATURE_TRUE)) {
-                BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_READ_TEMP));
+                BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(BleDeviceValues.UUID_CHARACTERISTIC_READ_TEMP));
                 mGatt.setCharacteristicNotification(c, true);
                 BluetoothGattDescriptor descriptor = c.getDescriptor(UUID.fromString(CHARACTERISTIC_UPDATE_NOTIFICATION_DESCRIPTOR_UUID));
                 descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
@@ -341,22 +450,29 @@ public class MainActivity extends AppCompatActivity {
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             Log.i("onCharacteristicChanged", characteristic.toString());
 
-            if (characteristic.getUuid().equals(UUID.fromString(UUID_CHARACTERISTIC_READ_TEMP))) {
+            if (characteristic.getUuid().equals(UUID.fromString(BleDeviceValues.UUID_CHARACTERISTIC_READ_TEMP))) {
                 byte[] value = characteristic.getValue();
                 Log.e("onCharacteristicChanged", Arrays.toString(value));
                 deviceValues.setTemperature(value[1]);
                 deviceValues.setCircuitTemp(value[3]);
                 refreshValuesUI();
-                mGatt.readCharacteristic(primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_READ_VOLTAGE)));
+                mGatt.readCharacteristic(primaryService.getCharacteristic(UUID.fromString(BleDeviceValues.UUID_CHARACTERISTIC_READ_VOLTAGE)));
             }
         }
 
     };
 
+    private void disconnectGatt() {
+        if (mGatt != null) {
+            mGatt.disconnect();
+            mGatt = null;
+        }
+    }
+
     private void refreshValuesUI() {
         Handler mainHandler = new Handler(getBaseContext().getMainLooper());
 
-        Runnable myRunnable = new Runnable() {
+        Runnable runnable = new Runnable() {
             @Override
             public void run() {
                 textTemp.setText(String.valueOf(deviceValues.getTemperature()));
@@ -364,21 +480,28 @@ public class MainActivity extends AppCompatActivity {
                 textVoltage.setText(String.valueOf(deviceValues.getVoltage() + "V"));
             }
         };
-        mainHandler.post(myRunnable);
+        mainHandler.post(runnable);
+    }
+    private void refreshInfoUI() {
+        Handler mainHandler = new Handler(getBaseContext().getMainLooper());
+        Runnable runnable = new Runnable() {
+            @Override
+            public void run() {
+                textSerialNum.setText(deviceInfo.getSerialNum());
+                textFirmwareV.setText(deviceInfo.getFirmwareRev());
+            }
+        };
+        mainHandler.post(runnable);
     }
 
     public static int byteArrayToInt(byte[] b) {
-        if (b.length == 4)
-            return b[0] << 24 | (b[1] & 0xff) << 16 | (b[2] & 0xff) << 8
-                    | (b[3] & 0xff);
-        else if (b.length == 2)
-            return (b[0] & 0xff) << 8 | (b[1] & 0xff);
-
-        return 0;
+        ByteBuffer wrapped = ByteBuffer.wrap(b);
+        return wrapped.getInt();
     }
 
+
     private void setReadTemp(Boolean read) {
-        BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(UUID_CHARACTERISTIC_SET_READ));
+        BluetoothGattCharacteristic c = primaryService.getCharacteristic(UUID.fromString(BleDeviceValues.UUID_CHARACTERISTIC_SET_READ));
         c.setValue(read ? READ_TEMPERATURE_TRUE : READ_TEMPERATURE_FALSE);
         mGatt.writeCharacteristic(c);
     }
